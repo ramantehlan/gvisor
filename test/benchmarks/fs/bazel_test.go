@@ -63,7 +63,7 @@ func BenchmarkABSL(b *testing.B) {
 			if bm.tmpfs {
 				if _, err := container.Exec(ctx, dockerutil.ExecOpts{},
 					"cp", "-r", "/abseil-cpp", "/tmp/."); err != nil {
-					b.Fatal("failed to copy directory: %v", err)
+					b.Fatalf("failed to copy directory: %v", err)
 				}
 				workdir = "/tmp" + workdir
 			}
