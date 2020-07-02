@@ -388,8 +388,8 @@ func (c *testContext) getPacketAndVerify(flow testFlow, checkers ...checker.Netw
 		c.t.Fatalf("Bad network protocol: got %v, wanted %v", p.Proto, flow.netProto())
 	}
 
-	hdr := p.Pkt.Header.View()
-	b := append(hdr[:len(hdr):len(hdr)], p.Pkt.Data.ToView()...)
+	vv := buffer.NewVectorisedView(p.Pkt.Size(), p.Pkt.Views())
+	b := vv.ToView()
 
 	h := flow.header4Tuple(outgoing)
 	checkers = append(
@@ -410,14 +410,14 @@ func (c *testContext) injectPacket(flow testFlow, payload []byte) {
 	h := flow.header4Tuple(incoming)
 	if flow.isV4() {
 		buf := c.buildV4Packet(payload, &h)
-		c.linkEP.InjectInbound(ipv4.ProtocolNumber, &stack.PacketBuffer{
+		c.linkEP.InjectInbound(ipv4.ProtocolNumber, stack.NewPacketBuffer(&stack.NewPacketBufferOptions{
 			Data: buf.ToVectorisedView(),
-		})
+		}))
 	} else {
 		buf := c.buildV6Packet(payload, &h)
-		c.linkEP.InjectInbound(ipv6.ProtocolNumber, &stack.PacketBuffer{
+		c.linkEP.InjectInbound(ipv6.ProtocolNumber, stack.NewPacketBuffer(&stack.NewPacketBufferOptions{
 			Data: buf.ToVectorisedView(),
-		})
+		}))
 	}
 }
 
@@ -804,9 +804,9 @@ func TestV4ReadSelfSource(t *testing.T) {
 			h.srcAddr = h.dstAddr
 
 			buf := c.buildV4Packet(payload, &h)
-			c.linkEP.InjectInbound(ipv4.ProtocolNumber, &stack.PacketBuffer{
+			c.linkEP.InjectInbound(ipv4.ProtocolNumber, stack.NewPacketBuffer(&stack.NewPacketBufferOptions{
 				Data: buf.ToVectorisedView(),
-			})
+			}))
 
 			if got := c.s.Stats().IP.InvalidSourceAddressesReceived.Value(); got != tt.wantInvalidSource {
 				t.Errorf("c.s.Stats().IP.InvalidSourceAddressesReceived got %d, want %d", got, tt.wantInvalidSource)
@@ -1667,9 +1667,8 @@ func TestV4UnknownDestination(t *testing.T) {
 				return
 			}
 
-			var pkt []byte
-			pkt = append(pkt, p.Pkt.Header.View()...)
-			pkt = append(pkt, p.Pkt.Data.ToView()...)
+			vv := buffer.NewVectorisedView(p.Pkt.Size(), p.Pkt.Views())
+			pkt := vv.ToView()
 			if got, want := len(pkt), header.IPv4MinimumProcessableDatagramSize; got > want {
 				t.Fatalf("got an ICMP packet of size: %d, want: sz <= %d", got, want)
 			}
@@ -1745,9 +1744,8 @@ func TestV6UnknownDestination(t *testing.T) {
 				return
 			}
 
-			var pkt []byte
-			pkt = append(pkt, p.Pkt.Header.View()...)
-			pkt = append(pkt, p.Pkt.Data.ToView()...)
+			vv := buffer.NewVectorisedView(p.Pkt.Size(), p.Pkt.Views())
+			pkt := vv.ToView()
 			if got, want := len(pkt), header.IPv6MinimumMTU; got > want {
 				t.Fatalf("got an ICMP packet of size: %d, want: sz <= %d", got, want)
 			}
@@ -1798,9 +1796,9 @@ func TestIncrementMalformedPacketsReceived(t *testing.T) {
 	u := header.UDP(buf[header.IPv6MinimumSize:])
 	u.SetLength(u.Length() + 1)
 
-	c.linkEP.InjectInbound(ipv6.ProtocolNumber, &stack.PacketBuffer{
+	c.linkEP.InjectInbound(ipv6.ProtocolNumber, stack.NewPacketBuffer(&stack.NewPacketBufferOptions{
 		Data: buf.ToVectorisedView(),
-	})
+	}))
 
 	const want = 1
 	if got := c.s.Stats().UDP.MalformedPacketsReceived.Value(); got != want {
@@ -1853,9 +1851,9 @@ func TestShortHeader(t *testing.T) {
 	copy(buf[header.IPv6MinimumSize:], udpHdr)
 
 	// Inject packet.
-	c.linkEP.InjectInbound(ipv6.ProtocolNumber, &stack.PacketBuffer{
+	c.linkEP.InjectInbound(ipv6.ProtocolNumber, stack.NewPacketBuffer(&stack.NewPacketBufferOptions{
 		Data: buf.ToVectorisedView(),
-	})
+	}))
 
 	if got, want := c.s.Stats().MalformedRcvdPackets.Value(), uint64(1); got != want {
 		t.Errorf("got c.s.Stats().MalformedRcvdPackets.Value() = %d, want = %d", got, want)
@@ -1887,9 +1885,9 @@ func TestIncrementChecksumErrorsV4(t *testing.T) {
 		}
 	}
 
-	c.linkEP.InjectInbound(ipv4.ProtocolNumber, &stack.PacketBuffer{
+	c.linkEP.InjectInbound(ipv4.ProtocolNumber, stack.NewPacketBuffer(&stack.NewPacketBufferOptions{
 		Data: buf.ToVectorisedView(),
-	})
+	}))
 
 	const want = 1
 	if got := c.s.Stats().UDP.ChecksumErrors.Value(); got != want {
@@ -1920,9 +1918,9 @@ func TestIncrementChecksumErrorsV6(t *testing.T) {
 	u := header.UDP(buf[header.IPv6MinimumSize:])
 	u.SetChecksum(u.Checksum() + 1)
 
-	c.linkEP.InjectInbound(ipv6.ProtocolNumber, &stack.PacketBuffer{
+	c.linkEP.InjectInbound(ipv6.ProtocolNumber, stack.NewPacketBuffer(&stack.NewPacketBufferOptions{
 		Data: buf.ToVectorisedView(),
-	})
+	}))
 
 	const want = 1
 	if got := c.s.Stats().UDP.ChecksumErrors.Value(); got != want {
@@ -1950,9 +1948,9 @@ func TestPayloadModifiedV4(t *testing.T) {
 	buf := c.buildV4Packet(payload, &h)
 	// Modify the payload so that the checksum value in the UDP header will be incorrect.
 	buf[len(buf)-1]++
-	c.linkEP.InjectInbound(ipv4.ProtocolNumber, &stack.PacketBuffer{
+	c.linkEP.InjectInbound(ipv4.ProtocolNumber, stack.NewPacketBuffer(&stack.NewPacketBufferOptions{
 		Data: buf.ToVectorisedView(),
-	})
+	}))
 
 	const want = 1
 	if got := c.s.Stats().UDP.ChecksumErrors.Value(); got != want {
@@ -1980,9 +1978,9 @@ func TestPayloadModifiedV6(t *testing.T) {
 	buf := c.buildV6Packet(payload, &h)
 	// Modify the payload so that the checksum value in the UDP header will be incorrect.
 	buf[len(buf)-1]++
-	c.linkEP.InjectInbound(ipv6.ProtocolNumber, &stack.PacketBuffer{
+	c.linkEP.InjectInbound(ipv6.ProtocolNumber, stack.NewPacketBuffer(&stack.NewPacketBufferOptions{
 		Data: buf.ToVectorisedView(),
-	})
+	}))
 
 	const want = 1
 	if got := c.s.Stats().UDP.ChecksumErrors.Value(); got != want {
@@ -2011,9 +2009,9 @@ func TestChecksumZeroV4(t *testing.T) {
 	// Set the checksum field in the UDP header to zero.
 	u := header.UDP(buf[header.IPv4MinimumSize:])
 	u.SetChecksum(0)
-	c.linkEP.InjectInbound(ipv4.ProtocolNumber, &stack.PacketBuffer{
+	c.linkEP.InjectInbound(ipv4.ProtocolNumber, stack.NewPacketBuffer(&stack.NewPacketBufferOptions{
 		Data: buf.ToVectorisedView(),
-	})
+	}))
 
 	const want = 0
 	if got := c.s.Stats().UDP.ChecksumErrors.Value(); got != want {
@@ -2042,9 +2040,9 @@ func TestChecksumZeroV6(t *testing.T) {
 	// Set the checksum field in the UDP header to zero.
 	u := header.UDP(buf[header.IPv6MinimumSize:])
 	u.SetChecksum(0)
-	c.linkEP.InjectInbound(ipv6.ProtocolNumber, &stack.PacketBuffer{
+	c.linkEP.InjectInbound(ipv6.ProtocolNumber, stack.NewPacketBuffer(&stack.NewPacketBufferOptions{
 		Data: buf.ToVectorisedView(),
-	})
+	}))
 
 	const want = 1
 	if got := c.s.Stats().UDP.ChecksumErrors.Value(); got != want {

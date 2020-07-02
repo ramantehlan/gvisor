@@ -120,6 +120,7 @@ go_test(
         "forwarder_test.go",
         "linkaddrcache_test.go",
         "nic_test.go",
+        "packet_buffer_test.go",
     ],
     library = ":stack",
     deps = [
