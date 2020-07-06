@@ -50,12 +50,12 @@ func Splice(t *kernel.Task, args arch.SyscallArguments) (uintptr, *kernel.Syscal
 	if inFile == nil {
 		return 0, nil, syserror.EBADF
 	}
-	defer inFile.DecRef()
+	defer inFile.DecRef(t)
 	outFile := t.GetFileVFS2(outFD)
 	if outFile == nil {
 		return 0, nil, syserror.EBADF
 	}
-	defer outFile.DecRef()
+	defer outFile.DecRef(t)
 
 	// Check that both files support the required directionality.
 	if !inFile.IsReadable() || !outFile.IsWritable() {
@@ -219,12 +219,12 @@ func Tee(t *kernel.Task, args arch.SyscallArguments) (uintptr, *kernel.SyscallCo
 	if inFile == nil {
 		return 0, nil, syserror.EBADF
 	}
-	defer inFile.DecRef()
+	defer inFile.DecRef(t)
 	outFile := t.GetFileVFS2(outFD)
 	if outFile == nil {
 		return 0, nil, syserror.EBADF
 	}
-	defer outFile.DecRef()
+	defer outFile.DecRef(t)
 
 	// Check that both files support the required directionality.
 	if !inFile.IsReadable() || !outFile.IsWritable() {

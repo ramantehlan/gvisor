@@ -109,6 +109,7 @@ func (f *FDTable) saveDescriptorTable() map[int32]descriptor {
 }
 
 func (f *FDTable) loadDescriptorTable(m map[int32]descriptor) {
+	ctx := context.Background()
 	f.init() // Initialize table.
 	for fd, d := range m {
 		f.setAll(fd, d.file, d.fileVFS2, d.flags)
@@ -118,9 +119,9 @@ func (f *FDTable) loadDescriptorTable(m map[int32]descriptor) {
 		// reference taken by set above.
 		switch {
 		case d.file != nil:
-			d.file.DecRef()
+			d.file.DecRef(ctx)
 		case d.fileVFS2 != nil:
-			d.fileVFS2.DecRef()
+			d.fileVFS2.DecRef(ctx)
 		}
 	}
 }
@@ -144,14 +145,15 @@ func (f *FDTable) drop(file *fs.File) {
 	d.InotifyEvent(ev, 0)
 
 	// Drop the table reference.
-	file.DecRef()
+	file.DecRef(context.Background())
 }
 
 // dropVFS2 drops the table reference.
 func (f *FDTable) dropVFS2(file *vfs.FileDescription) {
 	// Release any POSIX lock possibly held by the FDTable. Range {0, 0} means the
 	// entire file.
-	err := file.UnlockPOSIX(context.Background(), f, 0, 0, linux.SEEK_SET)
+	ctx := context.Background()
+	err := file.UnlockPOSIX(ctx, f, 0, 0, linux.SEEK_SET)
 	if err != nil && err != syserror.ENOLCK {
 		panic(fmt.Sprintf("UnlockPOSIX failed: %v", err))
 	}
@@ -164,7 +166,7 @@ func (f *FDTable) dropVFS2(file *vfs.FileDescription) {
 	file.Dentry().InotifyWithParent(ev, 0, vfs.PathEvent)
 
 	// Drop the table's reference.
-	file.DecRef()
+	file.DecRef(ctx)
 }
 
 // NewFDTable allocates a new FDTable that may be used by tasks in k.
@@ -175,15 +177,15 @@ func (k *Kernel) NewFDTable() *FDTable {
 }
 
 // destroy removes all of the file descriptors from the map.
-func (f *FDTable) destroy() {
+func (f *FDTable) destroy(context.Context) {
 	f.RemoveIf(func(*fs.File, *vfs.FileDescription, FDFlags) bool {
 		return true
 	})
 }
 
 // DecRef implements RefCounter.DecRef with destructor f.destroy.
-func (f *FDTable) DecRef() {
-	f.DecRefWithDestructor(f.destroy)
+func (f *FDTable) DecRef(ctx context.Context) {
+	f.DecRefWithDestructor(ctx, f.destroy)
 }
 
 // Size returns the number of file descriptor slots currently allocated.
@@ -214,7 +216,7 @@ func (f *FDTable) forEach(fn func(fd int32, file *fs.File, fileVFS2 *vfs.FileDes
 				continue // Race caught.
 			}
 			fn(fd, file, nil, flags)
-			file.DecRef()
+			file.DecRef(nil)
 		case fileVFS2 != nil:
 			if !fileVFS2.TryIncRef() {
 				retries++
@@ -224,7 +226,7 @@ func (f *FDTable) forEach(fn func(fd int32, file *fs.File, fileVFS2 *vfs.FileDes
 				continue // Race caught.
 			}
 			fn(fd, nil, fileVFS2, flags)
-			fileVFS2.DecRef()
+			fileVFS2.DecRef(nil)
 		}
 		retries = 0
 		fd++

@@ -18,6 +18,7 @@ import (
 	"fmt"
 
 	"gvisor.dev/gvisor/pkg/abi/linux"
+	"gvisor.dev/gvisor/pkg/context"
 	"gvisor.dev/gvisor/pkg/refs"
 	"gvisor.dev/gvisor/pkg/sync"
 	"gvisor.dev/gvisor/pkg/syserror"
@@ -354,7 +355,7 @@ type tunEndpoint struct {
 
 // DecRef decrements refcount of e, removes NIC if refcount goes to 0.
 func (e *tunEndpoint) DecRef() {
-	e.DecRefWithDestructor(func() {
+	e.DecRefWithDestructor(nil, func(context.Context) {
 		e.stack.RemoveNIC(e.nicID)
 	})
 }

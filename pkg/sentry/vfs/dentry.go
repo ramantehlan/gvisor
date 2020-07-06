@@ -17,6 +17,7 @@ package vfs
 import (
 	"sync/atomic"
 
+	"gvisor.dev/gvisor/pkg/context"
 	"gvisor.dev/gvisor/pkg/sync"
 	"gvisor.dev/gvisor/pkg/syserror"
 )
@@ -102,7 +103,7 @@ type DentryImpl interface {
 	TryIncRef() bool
 
 	// DecRef decrements the Dentry's reference count.
-	DecRef()
+	DecRef(ctx context.Context)
 
 	// InotifyWithParent notifies all watches on the targets represented by this
 	// dentry and its parent. The parent's watches are notified first, followed
@@ -150,8 +151,8 @@ func (d *Dentry) TryIncRef() bool {
 }
 
 // DecRef decrements d's reference count.
-func (d *Dentry) DecRef() {
-	d.impl.DecRef()
+func (d *Dentry) DecRef(ctx context.Context) {
+	d.impl.DecRef(ctx)
 }
 
 // IsDead returns true if d has been deleted or invalidated by its owning
@@ -214,11 +215,11 @@ func (vfs *VirtualFilesystem) AbortDeleteDentry(d *Dentry) {
 
 // CommitDeleteDentry must be called after PrepareDeleteDentry if the deletion
 // succeeds.
-func (vfs *VirtualFilesystem) CommitDeleteDentry(d *Dentry) {
+func (vfs *VirtualFilesystem) CommitDeleteDentry(ctx context.Context, d *Dentry) {
 	d.dead = true
 	d.mu.Unlock()
 	if d.isMounted() {
-		vfs.forgetDeadMountpoint(d)
+		vfs.forgetDeadMountpoint(ctx, d)
 	}
 }
 
@@ -226,12 +227,12 @@ func (vfs *VirtualFilesystem) CommitDeleteDentry(d *Dentry) {
 // did for reasons outside of VFS' control (e.g. d represents the local state
 // of a file on a remote filesystem on which the file has already been
 // deleted).
-func (vfs *VirtualFilesystem) InvalidateDentry(d *Dentry) {
+func (vfs *VirtualFilesystem) InvalidateDentry(ctx context.Context, d *Dentry) {
 	d.mu.Lock()
 	d.dead = true
 	d.mu.Unlock()
 	if d.isMounted() {
-		vfs.forgetDeadMountpoint(d)
+		vfs.forgetDeadMountpoint(ctx, d)
 	}
 }
 
@@ -278,13 +279,13 @@ func (vfs *VirtualFilesystem) AbortRenameDentry(from, to *Dentry) {
 // that was replaced by from.
 //
 // Preconditions: PrepareRenameDentry was previously called on from and to.
-func (vfs *VirtualFilesystem) CommitRenameReplaceDentry(from, to *Dentry) {
+func (vfs *VirtualFilesystem) CommitRenameReplaceDentry(ctx context.Context, from, to *Dentry) {
 	from.mu.Unlock()
 	if to != nil {
 		to.dead = true
 		to.mu.Unlock()
 		if to.isMounted() {
-			vfs.forgetDeadMountpoint(to)
+			vfs.forgetDeadMountpoint(ctx, to)
 		}
 	}
 }
@@ -303,7 +304,7 @@ func (vfs *VirtualFilesystem) CommitRenameExchangeDentry(from, to *Dentry) {
 //
 // forgetDeadMountpoint is analogous to Linux's
 // fs/namespace.c:__detach_mounts().
-func (vfs *VirtualFilesystem) forgetDeadMountpoint(d *Dentry) {
+func (vfs *VirtualFilesystem) forgetDeadMountpoint(ctx context.Context, d *Dentry) {
 	var (
 		vdsToDecRef    []VirtualDentry
 		mountsToDecRef []*Mount
@@ -316,9 +317,9 @@ func (vfs *VirtualFilesystem) forgetDeadMountpoint(d *Dentry) {
 	vfs.mounts.seq.EndWrite()
 	vfs.mountMu.Unlock()
 	for _, vd := range vdsToDecRef {
-		vd.DecRef()
+		vd.DecRef(ctx)
 	}
 	for _, mnt := range mountsToDecRef {
-		mnt.DecRef()
+		mnt.DecRef(ctx)
 	}
 }

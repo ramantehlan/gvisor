@@ -82,7 +82,7 @@ type anonDentry struct {
 }
 
 // Release implements FilesystemImpl.Release.
-func (fs *anonFilesystem) Release() {
+func (fs *anonFilesystem) Release(ctx context.Context) {
 }
 
 // Sync implements FilesystemImpl.Sync.
@@ -294,7 +294,7 @@ func (d *anonDentry) TryIncRef() bool {
 }
 
 // DecRef implements DentryImpl.DecRef.
-func (d *anonDentry) DecRef() {
+func (d *anonDentry) DecRef(ctx context.Context) {
 	// no-op
 }
 

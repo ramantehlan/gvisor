@@ -95,7 +95,7 @@ type directoryFD struct {
 }
 
 // Release implements vfs.FileDescriptionImpl.Release.
-func (fd *directoryFD) Release() {
+func (fd *directoryFD) Release(ctx context.Context) {
 	if fd.iter != nil {
 		dir := fd.inode().impl.(*directory)
 		dir.iterMu.Lock()

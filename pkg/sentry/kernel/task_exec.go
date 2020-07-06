@@ -200,7 +200,7 @@ func (r *runSyscallAfterExecStop) execute(t *Task) taskRunState {
 
 	oldFDTable := t.fdTable
 	t.fdTable = t.fdTable.Fork()
-	oldFDTable.DecRef()
+	oldFDTable.DecRef(t)
 
 	// Remove FDs with the CloseOnExec flag set.
 	t.fdTable.RemoveIf(func(_ *fs.File, _ *vfs.FileDescription, flags FDFlags) bool {

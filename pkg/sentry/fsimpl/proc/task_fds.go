@@ -48,7 +48,7 @@ func taskFDExists(t *kernel.Task, fd int32) bool {
 	if file == nil {
 		return false
 	}
-	file.DecRef()
+	file.DecRef(t)
 	return true
 }
 
@@ -204,9 +204,9 @@ func (s *fdSymlink) Readlink(ctx context.Context) (string, error) {
 	if file == nil {
 		return "", syserror.ENOENT
 	}
-	defer file.DecRef()
+	defer file.DecRef(ctx)
 	root := vfs.RootFromContext(ctx)
-	defer root.DecRef()
+	defer root.DecRef(ctx)
 	return s.task.Kernel().VFS().PathnameWithDeleted(ctx, root, file.VirtualDentry())
 }
 
@@ -215,7 +215,7 @@ func (s *fdSymlink) Getlink(ctx context.Context, mnt *vfs.Mount) (vfs.VirtualDen
 	if file == nil {
 		return vfs.VirtualDentry{}, "", syserror.ENOENT
 	}
-	defer file.DecRef()
+	defer file.DecRef(ctx)
 	vd := file.VirtualDentry()
 	vd.IncRef()
 	return vd, "", nil
@@ -297,7 +297,7 @@ func (d *fdInfoData) Generate(ctx context.Context, buf *bytes.Buffer) error {
 	if file == nil {
 		return syserror.ENOENT
 	}
-	defer file.DecRef()
+	defer file.DecRef(ctx)
 	// TODO(b/121266871): Include pos, locks, and other data. For now we only
 	// have flags.
 	// See https://www.kernel.org/doc/Documentation/filesystems/proc.txt

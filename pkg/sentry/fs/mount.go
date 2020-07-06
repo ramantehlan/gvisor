@@ -165,7 +165,7 @@ func (msrc *MountSource) DecDirentRefs() {
 	}
 }
 
-func (msrc *MountSource) destroy() {
+func (msrc *MountSource) destroy(ctx context.Context) {
 	if c := msrc.DirentRefs(); c != 0 {
 		panic(fmt.Sprintf("MountSource with non-zero direntRefs is being destroyed: %d", c))
 	}
@@ -174,7 +174,7 @@ func (msrc *MountSource) destroy() {
 
 // DecRef drops a reference on the MountSource.
 func (msrc *MountSource) DecRef() {
-	msrc.DecRefWithDestructor(msrc.destroy)
+	msrc.DecRefWithDestructor(nil, msrc.destroy)
 }
 
 // FlushDirentRefs drops all references held by the MountSource on Dirents.

@@ -65,7 +65,7 @@ func fstatat(t *kernel.Task, dirfd int32, pathAddr, statAddr usermem.Addr, flags
 	}
 
 	root := t.FSContext().RootDirectoryVFS2()
-	defer root.DecRef()
+	defer root.DecRef(t)
 	start := root
 	if !path.Absolute {
 		if !path.HasComponents() && flags&linux.AT_EMPTY_PATH == 0 {
@@ -73,7 +73,7 @@ func fstatat(t *kernel.Task, dirfd int32, pathAddr, statAddr usermem.Addr, flags
 		}
 		if dirfd == linux.AT_FDCWD {
 			start = t.FSContext().WorkingDirectoryVFS2()
-			defer start.DecRef()
+			defer start.DecRef(t)
 		} else {
 			dirfile := t.GetFileVFS2(dirfd)
 			if dirfile == nil {
@@ -85,7 +85,7 @@ func fstatat(t *kernel.Task, dirfd int32, pathAddr, statAddr usermem.Addr, flags
 				// former may be able to use opened file state to expedite the
 				// Stat.
 				statx, err := dirfile.Stat(t, opts)
-				dirfile.DecRef()
+				dirfile.DecRef(t)
 				if err != nil {
 					return err
 				}
@@ -96,8 +96,8 @@ func fstatat(t *kernel.Task, dirfd int32, pathAddr, statAddr usermem.Addr, flags
 			}
 			start = dirfile.VirtualDentry()
 			start.IncRef()
-			defer start.DecRef()
-			dirfile.DecRef()
+			defer start.DecRef(t)
+			dirfile.DecRef(t)
 		}
 	}
 
@@ -132,7 +132,7 @@ func Fstat(t *kernel.Task, args arch.SyscallArguments) (uintptr, *kernel.Syscall
 	if file == nil {
 		return 0, nil, syserror.EBADF
 	}
-	defer file.DecRef()
+	defer file.DecRef(t)
 
 	statx, err := file.Stat(t, vfs.StatOptions{
 		Mask: linux.STATX_BASIC_STATS,
@@ -177,7 +177,7 @@ func Statx(t *kernel.Task, args arch.SyscallArguments) (uintptr, *kernel.Syscall
 	}
 
 	root := t.FSContext().RootDirectoryVFS2()
-	defer root.DecRef()
+	defer root.DecRef(t)
 	start := root
 	if !path.Absolute {
 		if !path.HasComponents() && flags&linux.AT_EMPTY_PATH == 0 {
@@ -185,7 +185,7 @@ func Statx(t *kernel.Task, args arch.SyscallArguments) (uintptr, *kernel.Syscall
 		}
 		if dirfd == linux.AT_FDCWD {
 			start = t.FSContext().WorkingDirectoryVFS2()
-			defer start.DecRef()
+			defer start.DecRef(t)
 		} else {
 			dirfile := t.GetFileVFS2(dirfd)
 			if dirfile == nil {
@@ -197,7 +197,7 @@ func Statx(t *kernel.Task, args arch.SyscallArguments) (uintptr, *kernel.Syscall
 				// former may be able to use opened file state to expedite the
 				// Stat.
 				statx, err := dirfile.Stat(t, opts)
-				dirfile.DecRef()
+				dirfile.DecRef(t)
 				if err != nil {
 					return 0, nil, err
 				}
@@ -207,8 +207,8 @@ func Statx(t *kernel.Task, args arch.SyscallArguments) (uintptr, *kernel.Syscall
 			}
 			start = dirfile.VirtualDentry()
 			start.IncRef()
-			defer start.DecRef()
-			dirfile.DecRef()
+			defer start.DecRef(t)
+			dirfile.DecRef(t)
 		}
 	}
 

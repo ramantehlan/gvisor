@@ -100,7 +100,7 @@ func NewInotifyFD(ctx context.Context, vfsObj *VirtualFilesystem, flags uint32) 
 
 	id := uniqueid.GlobalFromContext(ctx)
 	vd := vfsObj.NewAnonVirtualDentry(fmt.Sprintf("[inotifyfd:%d]", id))
-	defer vd.DecRef()
+	defer vd.DecRef(ctx)
 	fd := &Inotify{
 		id:      id,
 		scratch: make([]byte, inotifyEventBaseSize),
@@ -118,7 +118,7 @@ func NewInotifyFD(ctx context.Context, vfsObj *VirtualFilesystem, flags uint32) 
 
 // Release implements FileDescriptionImpl.Release. Release removes all
 // watches and frees all resources for an inotify instance.
-func (i *Inotify) Release() {
+func (i *Inotify) Release(ctx context.Context) {
 	var ds []*Dentry
 
 	// We need to hold i.mu to avoid a race with concurrent calls to

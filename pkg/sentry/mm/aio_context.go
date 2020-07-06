@@ -259,8 +259,8 @@ func newAIOMappable(mfp pgalloc.MemoryFileProvider) (*aioMappable, error) {
 }
 
 // DecRef implements refs.RefCounter.DecRef.
-func (m *aioMappable) DecRef() {
-	m.AtomicRefCount.DecRefWithDestructor(func() {
+func (m *aioMappable) DecRef(ctx context.Context) {
+	m.AtomicRefCount.DecRefWithDestructor(ctx, func(context.Context) {
 		m.mfp.MemoryFile().DecRef(m.fr)
 	})
 }
@@ -368,7 +368,7 @@ func (mm *MemoryManager) NewAIOContext(ctx context.Context, events uint32) (uint
 	if err != nil {
 		return 0, err
 	}
-	defer m.DecRef()
+	defer m.DecRef(ctx)
 	addr, err := mm.MMap(ctx, memmap.MMapOpts{
 		Length:          aioRingBufferSize,
 		MappingIdentity: m,

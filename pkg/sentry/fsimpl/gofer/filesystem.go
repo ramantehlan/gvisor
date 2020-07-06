@@ -55,7 +55,7 @@ func (fs *filesystem) Sync(ctx context.Context) error {
 	// Sync regular files.
 	for _, d := range ds {
 		err := d.syncSharedHandle(ctx)
-		d.DecRef()
+		d.DecRef(ctx)
 		if err != nil && retErr == nil {
 			retErr = err
 		}
@@ -65,7 +65,7 @@ func (fs *filesystem) Sync(ctx context.Context) error {
 	// handles (so they won't be synced by the above).
 	for _, sffd := range sffds {
 		err := sffd.Sync(ctx)
-		sffd.vfsfd.DecRef()
+		sffd.vfsfd.DecRef(ctx)
 		if err != nil && retErr == nil {
 			retErr = err
 		}
@@ -133,7 +133,7 @@ afterSymlink:
 		return d, nil
 	}
 	if name == ".." {
-		if isRoot, err := rp.CheckRoot(&d.vfsd); err != nil {
+		if isRoot, err := rp.CheckRoot(ctx, &d.vfsd); err != nil {
 			return nil, err
 		} else if isRoot || d.parent == nil {
 			rp.Advance()
@@ -146,7 +146,7 @@ afterSymlink:
 		//
 		// Call rp.CheckMount() before updating d.parent's metadata, since if
 		// we traverse to another mount then d.parent's metadata is irrelevant.
-		if err := rp.CheckMount(&d.parent.vfsd); err != nil {
+		if err := rp.CheckMount(ctx, &d.parent.vfsd); err != nil {
 			return nil, err
 		}
 		if d != d.parent && !d.cachedMetadataAuthoritative() {
@@ -166,7 +166,7 @@ afterSymlink:
 	if child == nil {
 		return nil, syserror.ENOENT
 	}
-	if err := rp.CheckMount(&child.vfsd); err != nil {
+	if err := rp.CheckMount(ctx, &child.vfsd); err != nil {
 		return nil, err
 	}
 	if child.isSymlink() && mayFollowSymlinks && rp.ShouldFollowSymlink() {
@@ -230,7 +230,7 @@ func (fs *filesystem) revalidateChildLocked(ctx context.Context, vfsObj *vfs.Vir
 		// has 0 references, drop it). Wait to update parent.children until we
 		// know what to replace the existing dentry with (i.e. one of the
 		// returns below), to avoid a redundant map access.
-		vfsObj.InvalidateDentry(&child.vfsd)
+		vfsObj.InvalidateDentry(ctx, &child.vfsd)
 		if child.isSynthetic() {
 			// Normally we don't mark invalidated dentries as deleted since
 			// they may still exist (but at a different path), and also for
@@ -461,7 +461,7 @@ func (fs *filesystem) unlinkAt(ctx context.Context, rp *vfs.ResolvingPath, dir b
 	}
 	vfsObj := rp.VirtualFilesystem()
 	mntns := vfs.MountNamespaceFromContext(ctx)
-	defer mntns.DecRef()
+	defer mntns.DecRef(ctx)
 	parent.dirMu.Lock()
 	defer parent.dirMu.Unlock()
 
@@ -601,7 +601,7 @@ func (fs *filesystem) unlinkAt(ctx context.Context, rp *vfs.ResolvingPath, dir b
 	}
 
 	if child != nil {
-		vfsObj.CommitDeleteDentry(&child.vfsd)
+		vfsObj.CommitDeleteDentry(ctx, &child.vfsd)
 		child.setDeleted()
 		if child.isSynthetic() {
 			parent.syntheticChildren--
@@ -1235,7 +1235,7 @@ func (fs *filesystem) RenameAt(ctx context.Context, rp *vfs.ResolvingPath, oldPa
 		return nil
 	}
 	mntns := vfs.MountNamespaceFromContext(ctx)
-	defer mntns.DecRef()
+	defer mntns.DecRef(ctx)
 	if err := vfsObj.PrepareRenameDentry(mntns, &renamed.vfsd, replacedVFSD); err != nil {
 		return err
 	}
@@ -1260,7 +1260,7 @@ func (fs *filesystem) RenameAt(ctx context.Context, rp *vfs.ResolvingPath, oldPa
 	}
 
 	// Update the dentry tree.
-	vfsObj.CommitRenameReplaceDentry(&renamed.vfsd, replacedVFSD)
+	vfsObj.CommitRenameReplaceDentry(ctx, &renamed.vfsd, replacedVFSD)
 	if replaced != nil {
 		replaced.setDeleted()
 		if replaced.isSynthetic() {

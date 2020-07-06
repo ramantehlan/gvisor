@@ -519,7 +519,7 @@ func (t *Task) Unshare(opts *SharingOptions) error {
 	}
 	t.mu.Unlock()
 	if oldFDTable != nil {
-		oldFDTable.DecRef()
+		oldFDTable.DecRef(t)
 	}
 	if oldFSContext != nil {
 		oldFSContext.DecRef()

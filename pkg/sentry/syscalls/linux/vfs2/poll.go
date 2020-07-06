@@ -73,7 +73,7 @@ func initReadiness(t *kernel.Task, pfd *linux.PollFD, state *pollState, ch chan 
 	}
 
 	if ch == nil {
-		defer file.DecRef()
+		defer file.DecRef(t)
 	} else {
 		state.file = file
 		state.waiter, _ = waiter.NewChannelEntry(ch)
@@ -89,7 +89,7 @@ func releaseState(state []pollState) {
 	for i := range state {
 		if state[i].file != nil {
 			state[i].file.EventUnregister(&state[i].waiter)
-			state[i].file.DecRef()
+			state[i].file.DecRef(nil)
 		}
 	}
 }
@@ -269,7 +269,7 @@ func doSelect(t *kernel.Task, nfds int, readFDs, writeFDs, exceptFDs usermem.Add
 				if file == nil {
 					return 0, syserror.EBADF
 				}
-				file.DecRef()
+				file.DecRef(t)
 
 				var mask int16
 				if (rV & m) != 0 {

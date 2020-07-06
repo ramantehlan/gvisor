@@ -57,7 +57,7 @@ type DeviceFD struct {
 }
 
 // Release implements vfs.FileDescriptionImpl.Release.
-func (fd *DeviceFD) Release() {}
+func (fd *DeviceFD) Release(context.Context) {}
 
 // PRead implements vfs.FileDescriptionImpl.PRead.
 func (fd *DeviceFD) PRead(ctx context.Context, dst usermem.IOSequence, offset int64, opts vfs.ReadOptions) (int64, error) {

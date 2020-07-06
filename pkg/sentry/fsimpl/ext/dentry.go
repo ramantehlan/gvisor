@@ -15,6 +15,7 @@
 package ext
 
 import (
+	"gvisor.dev/gvisor/pkg/context"
 	"gvisor.dev/gvisor/pkg/sentry/vfs"
 )
 
@@ -55,7 +56,7 @@ func (d *dentry) TryIncRef() bool {
 }
 
 // DecRef implements vfs.DentryImpl.DecRef.
-func (d *dentry) DecRef() {
+func (d *dentry) DecRef(ctx context.Context) {
 	// FIXME(b/134676337): filesystem.mu may not be locked as required by
 	// inode.decRef().
 	d.inode.decRef()

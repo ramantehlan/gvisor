@@ -48,7 +48,7 @@ func importFS(ctx context.Context, fdTable *kernel.FDTable, console bool, fds []
 				if err != nil {
 					return nil, err
 				}
-				defer appFile.DecRef()
+				defer appFile.DecRef(ctx)
 
 				// Remember this in the TTY file, as we will
 				// use it for the other stdio FDs.
@@ -67,7 +67,7 @@ func importFS(ctx context.Context, fdTable *kernel.FDTable, console bool, fds []
 			if err != nil {
 				return nil, err
 			}
-			defer appFile.DecRef()
+			defer appFile.DecRef(ctx)
 		}
 
 		// Add the file to the FD map.
@@ -97,7 +97,7 @@ func importVFS2(ctx context.Context, fdTable *kernel.FDTable, console bool, stdi
 				if err != nil {
 					return nil, err
 				}
-				defer appFile.DecRef()
+				defer appFile.DecRef(ctx)
 
 				// Remember this in the TTY file, as we will use it for the other stdio
 				// FDs.
@@ -114,7 +114,7 @@ func importVFS2(ctx context.Context, fdTable *kernel.FDTable, console bool, stdi
 			if err != nil {
 				return nil, err
 			}
-			defer appFile.DecRef()
+			defer appFile.DecRef(ctx)
 		}
 
 		if err := fdTable.NewFDAtVFS2(ctx, int32(appFD), appFile, kernel.FDFlags{}); err != nil {

@@ -122,7 +122,7 @@ type directoryFD struct {
 }
 
 // Release implements vfs.FileDescriptionImpl.Release.
-func (fd *directoryFD) Release() {
+func (fd *directoryFD) Release(context.Context) {
 }
 
 // IterDirents implements vfs.FileDescriptionImpl.IterDirents.

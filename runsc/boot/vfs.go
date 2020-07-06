@@ -99,7 +99,7 @@ func registerFilesystems(k *kernel.Kernel) error {
 	if err != nil {
 		return fmt.Errorf("creating devtmpfs accessor: %w", err)
 	}
-	defer a.Release()
+	defer a.Release(ctx)
 
 	if err := a.UserspaceInit(ctx); err != nil {
 		return fmt.Errorf("initializing userspace: %w", err)
@@ -238,7 +238,7 @@ func (c *containerMounter) prepareMountsVFS2() ([]mountAndFD, error) {
 
 func (c *containerMounter) mountSubmountVFS2(ctx context.Context, conf *Config, mns *vfs.MountNamespace, creds *auth.Credentials, submount *mountAndFD) error {
 	root := mns.Root()
-	defer root.DecRef()
+	defer root.DecRef(ctx)
 	target := &vfs.PathOperation{
 		Root:  root,
 		Start: root,
@@ -373,7 +373,7 @@ func (c *containerMounter) mountTmpVFS2(ctx context.Context, conf *Config, creds
 	}
 
 	root := mns.Root()
-	defer root.DecRef()
+	defer root.DecRef(ctx)
 	pop := vfs.PathOperation{
 		Root:  root,
 		Start: root,
@@ -467,10 +467,10 @@ func (c *containerMounter) mountSharedSubmountVFS2(ctx context.Context, conf *Co
 	if err != nil {
 		return err
 	}
-	defer newMnt.DecRef()
+	defer newMnt.DecRef(ctx)
 
 	root := mns.Root()
-	defer root.DecRef()
+	defer root.DecRef(ctx)
 	if err := c.makeSyntheticMount(ctx, mount.Destination, root, creds); err != nil {
 		return err
 	}

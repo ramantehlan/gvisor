@@ -185,7 +185,7 @@ func (fstype FilesystemType) GetFilesystem(ctx context.Context, vfsObj *vfs.Virt
 	case linux.S_IFDIR:
 		root = &fs.newDirectory(rootKUID, rootKGID, rootMode).dentry
 	default:
-		fs.vfsfs.DecRef()
+		fs.vfsfs.DecRef(ctx)
 		return nil, nil, fmt.Errorf("invalid tmpfs root file type: %#o", rootFileType)
 	}
 	return &fs.vfsfs, &root.vfsd, nil
@@ -197,7 +197,7 @@ func NewFilesystem(ctx context.Context, vfsObj *vfs.VirtualFilesystem, creds *au
 }
 
 // Release implements vfs.FilesystemImpl.Release.
-func (fs *filesystem) Release() {
+func (fs *filesystem) Release(ctx context.Context) {
 	fs.vfsfs.VirtualFilesystem().PutAnonBlockDevMinor(fs.devMinor)
 }
 
@@ -249,7 +249,7 @@ func (d *dentry) TryIncRef() bool {
 }
 
 // DecRef implements vfs.DentryImpl.DecRef.
-func (d *dentry) DecRef() {
+func (d *dentry) DecRef(ctx context.Context) {
 	d.inode.decRef()
 }
 
@@ -741,7 +741,7 @@ func (fd *fileDescription) Removexattr(ctx context.Context, name string) error {
 
 // NewMemfd creates a new tmpfs regular file and file description that can back
 // an anonymous fd created by memfd_create.
-func NewMemfd(mount *vfs.Mount, creds *auth.Credentials, allowSeals bool, name string) (*vfs.FileDescription, error) {
+func NewMemfd(ctx context.Context, mount *vfs.Mount, allowSeals bool, name string) (*vfs.FileDescription, error) {
 	fs, ok := mount.Filesystem().Impl().(*filesystem)
 	if !ok {
 		panic("NewMemfd() called with non-tmpfs mount")
@@ -749,6 +749,7 @@ func NewMemfd(mount *vfs.Mount, creds *auth.Credentials, allowSeals bool, name s
 
 	// Per Linux, mm/shmem.c:__shmem_file_setup(), memfd inodes are set up with
 	// S_IRWXUGO.
+	creds := auth.CredentialsFromContext(ctx)
 	inode := fs.newRegularFile(creds.EffectiveKUID, creds.EffectiveKGID, 0777)
 	rf := inode.impl.(*regularFile)
 	if allowSeals {
@@ -756,7 +757,7 @@ func NewMemfd(mount *vfs.Mount, creds *auth.Credentials, allowSeals bool, name s
 	}
 
 	d := fs.newDentry(inode)
-	defer d.DecRef()
+	defer d.DecRef(ctx)
 	d.name = name
 
 	// Per Linux, mm/shmem.c:__shmem_file_setup(), memfd files are set up with

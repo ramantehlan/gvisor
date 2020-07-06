@@ -482,7 +482,7 @@ func (fstype FilesystemType) GetFilesystem(ctx context.Context, vfsObj *vfs.Virt
 	root, err := fs.newDentry(ctx, attachFile, qid, attrMask, &attr)
 	if err != nil {
 		attachFile.close(ctx)
-		fs.vfsfs.DecRef()
+		fs.vfsfs.DecRef(ctx)
 		return nil, nil, err
 	}
 	// Set the root's reference count to 2. One reference is returned to the
@@ -495,8 +495,7 @@ func (fstype FilesystemType) GetFilesystem(ctx context.Context, vfsObj *vfs.Virt
 }
 
 // Release implements vfs.FilesystemImpl.Release.
-func (fs *filesystem) Release() {
-	ctx := context.Background()
+func (fs *filesystem) Release(ctx context.Context) {
 	mf := fs.mfp.MemoryFile()
 
 	fs.syncMu.Lock()
@@ -1074,7 +1073,7 @@ func (d *dentry) TryIncRef() bool {
 }
 
 // DecRef implements vfs.DentryImpl.DecRef.
-func (d *dentry) DecRef() {
+func (d *dentry) DecRef(ctx context.Context) {
 	if refs := atomic.AddInt64(&d.refs, -1); refs == 0 {
 		d.fs.renameMu.Lock()
 		d.checkCachingLocked()
@@ -1198,7 +1197,7 @@ func (d *dentry) checkCachingLocked() {
 				if !victim.vfsd.IsDead() {
 					// Note that victim can't be a mount point (in any mount
 					// namespace), since VFS holds references on mount points.
-					d.fs.vfsfs.VirtualFilesystem().InvalidateDentry(&victim.vfsd)
+					d.fs.vfsfs.VirtualFilesystem().InvalidateDentry(context.Background(), &victim.vfsd)
 					delete(victim.parent.children, victim.name)
 					// We're only deleting the dentry, not the file it
 					// represents, so we don't need to update

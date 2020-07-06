@@ -267,11 +267,11 @@ func (*runExitMain) execute(t *Task) taskRunState {
 	t.unstopVforkParent()
 
 	t.fsContext.DecRef()
-	t.fdTable.DecRef()
+	t.fdTable.DecRef(t)
 
 	t.mu.Lock()
 	if t.mountNamespaceVFS2 != nil {
-		t.mountNamespaceVFS2.DecRef()
+		t.mountNamespaceVFS2.DecRef(t)
 		t.mountNamespaceVFS2 = nil
 	}
 	t.mu.Unlock()

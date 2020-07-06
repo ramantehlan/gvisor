@@ -230,16 +230,16 @@ func newOverlayEntry(ctx context.Context, upper *Inode, lower *Inode, lowerExist
 	}, nil
 }
 
-func (o *overlayEntry) release() {
+func (o *overlayEntry) release(ctx context.Context) {
 	// We drop a reference on upper and lower file system Inodes
 	// rather than releasing them, because in-memory filesystems
 	// may hold an extra reference to these Inodes so that they
 	// stay in memory.
 	if o.upper != nil {
-		o.upper.DecRef()
+		o.upper.DecRef(ctx)
 	}
 	if o.lower != nil {
-		o.lower.DecRef()
+		o.lower.DecRef(ctx)
 	}
 }
 

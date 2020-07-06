@@ -376,7 +376,8 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 	k.netlinkPorts = port.New()
 
 	if VFS2Enabled {
-		if err := k.vfs.Init(); err != nil {
+		ctx := k.SupervisorContext()
+		if err := k.vfs.Init(ctx); err != nil {
 			return fmt.Errorf("failed to initialize VFS: %v", err)
 		}
 
@@ -384,19 +385,19 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 		if err != nil {
 			return fmt.Errorf("failed to create pipefs filesystem: %v", err)
 		}
-		defer pipeFilesystem.DecRef()
+		defer pipeFilesystem.DecRef(ctx)
 		pipeMount, err := k.vfs.NewDisconnectedMount(pipeFilesystem, nil, &vfs.MountOptions{})
 		if err != nil {
 			return fmt.Errorf("failed to create pipefs mount: %v", err)
 		}
 		k.pipeMount = pipeMount
 
-		tmpfsFilesystem, tmpfsRoot, err := tmpfs.NewFilesystem(k.SupervisorContext(), &k.vfs, auth.NewRootCredentials(k.rootUserNamespace))
+		tmpfsFilesystem, tmpfsRoot, err := tmpfs.NewFilesystem(ctx, &k.vfs, auth.NewRootCredentials(k.rootUserNamespace))
 		if err != nil {
 			return fmt.Errorf("failed to create tmpfs filesystem: %v", err)
 		}
-		defer tmpfsFilesystem.DecRef()
-		defer tmpfsRoot.DecRef()
+		defer tmpfsFilesystem.DecRef(ctx)
+		defer tmpfsRoot.DecRef(ctx)
 		shmMount, err := k.vfs.NewDisconnectedMount(tmpfsFilesystem, tmpfsRoot, &vfs.MountOptions{})
 		if err != nil {
 			return fmt.Errorf("failed to create tmpfs mount: %v", err)
@@ -407,7 +408,7 @@ func (k *Kernel) Init(args InitKernelArgs) error {
 		if err != nil {
 			return fmt.Errorf("failed to create sockfs filesystem: %v", err)
 		}
-		defer socketFilesystem.DecRef()
+		defer socketFilesystem.DecRef(ctx)
 		socketMount, err := k.vfs.NewDisconnectedMount(socketFilesystem, nil, &vfs.MountOptions{})
 		if err != nil {
 			return fmt.Errorf("failed to create sockfs mount: %v", err)
@@ -900,7 +901,7 @@ func (k *Kernel) CreateProcess(args CreateProcessArgs) (*ThreadGroup, ThreadID, 
 		root := args.MountNamespaceVFS2.Root()
 		// The call to newFSContext below will take a reference on root, so we
 		// don't need to hold this one.
-		defer root.DecRef()
+		defer root.DecRef(ctx)
 
 		// Grab the working directory.
 		wd := root // Default.
@@ -918,7 +919,7 @@ func (k *Kernel) CreateProcess(args CreateProcessArgs) (*ThreadGroup, ThreadID, 
 			if err != nil {
 				return nil, 0, fmt.Errorf("failed to find initial working directory %q: %v", args.WorkingDirectory, err)
 			}
-			defer wd.DecRef()
+			defer wd.DecRef(ctx)
 		}
 		opener = fsbridge.NewVFSLookup(mntnsVFS2, root, wd)
 		fsContext = NewFSContextVFS2(root, wd, args.Umask)
@@ -933,7 +934,7 @@ func (k *Kernel) CreateProcess(args CreateProcessArgs) (*ThreadGroup, ThreadID, 
 		root := mntns.Root()
 		// The call to newFSContext below will take a reference on root, so we
 		// don't need to hold this one.
-		defer root.DecRef()
+		defer root.DecRef(ctx)
 
 		// Grab the working directory.
 		remainingTraversals := args.MaxSymlinkTraversals
@@ -944,7 +945,7 @@ func (k *Kernel) CreateProcess(args CreateProcessArgs) (*ThreadGroup, ThreadID, 
 			if err != nil {
 				return nil, 0, fmt.Errorf("failed to find initial working directory %q: %v", args.WorkingDirectory, err)
 			}
-			defer wd.DecRef()
+			defer wd.DecRef(ctx)
 		}
 		opener = fsbridge.NewFSLookup(mntns, root, wd)
 		fsContext = newFSContext(root, wd, args.Umask)
@@ -1506,7 +1507,7 @@ type SocketEntry struct {
 }
 
 // WeakRefGone implements refs.WeakRefUser.WeakRefGone.
-func (s *SocketEntry) WeakRefGone() {
+func (s *SocketEntry) WeakRefGone(context.Context) {
 	s.k.extMu.Lock()
 	s.k.sockets.Remove(s)
 	s.k.extMu.Unlock()
@@ -1595,7 +1596,7 @@ func (ctx supervisorContext) Value(key interface{}) interface{} {
 			return vfs.VirtualDentry{}
 		}
 		mntns := ctx.k.GlobalInit().Leader().MountNamespaceVFS2()
-		defer mntns.DecRef()
+		defer mntns.DecRef(ctx)
 		// Root() takes a reference on the root dirent for us.
 		return mntns.Root()
 	case vfs.CtxMountNamespace:

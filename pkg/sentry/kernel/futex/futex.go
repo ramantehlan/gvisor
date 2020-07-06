@@ -19,6 +19,7 @@ package futex
 
 import (
 	"gvisor.dev/gvisor/pkg/abi/linux"
+	"gvisor.dev/gvisor/pkg/context"
 	"gvisor.dev/gvisor/pkg/sentry/memmap"
 	"gvisor.dev/gvisor/pkg/sync"
 	"gvisor.dev/gvisor/pkg/syserror"
@@ -68,7 +69,7 @@ type Key struct {
 
 func (k *Key) release() {
 	if k.MappingIdentity != nil {
-		k.MappingIdentity.DecRef()
+		k.MappingIdentity.DecRef(context.Background())
 	}
 	k.Mappable = nil
 	k.MappingIdentity = nil

@@ -116,7 +116,7 @@ func (f *fd) GetFile(context.Context, *fs.Dirent, fs.FileFlags) (*fs.File, error
 func (f *fd) Readlink(ctx context.Context, _ *fs.Inode) (string, error) {
 	root := fs.RootFromContext(ctx)
 	if root != nil {
-		defer root.DecRef()
+		defer root.DecRef(ctx)
 	}
 	n, _ := f.file.Dirent.FullName(root)
 	return n, nil
@@ -135,12 +135,12 @@ func (f *fd) Truncate(context.Context, *fs.Inode, int64) error {
 
 func (f *fd) Release(ctx context.Context) {
 	f.Symlink.Release(ctx)
-	f.file.DecRef()
+	f.file.DecRef(ctx)
 }
 
 // Close releases the reference on the file.
 func (f *fd) Close() error {
-	f.file.DecRef()
+	f.file.DecRef(context.Background())
 	return nil
 }
 
@@ -261,7 +261,7 @@ func (fdid *fdInfoDir) Lookup(ctx context.Context, dir *fs.Inode, p string) (*fs
 		// locks, and other data.  For now we only have flags.
 		// See https://www.kernel.org/doc/Documentation/filesystems/proc.txt
 		flags := file.Flags().ToLinux() | fdFlags.ToLinuxFileFlags()
-		file.DecRef()
+		file.DecRef(ctx)
 		contents := []byte(fmt.Sprintf("flags:\t0%o\n", flags))
 		return newStaticProcInode(ctx, dir.MountSource, contents)
 	})

@@ -61,7 +61,7 @@ type SocketOperations struct {
 // New creates a new unix socket.
 func New(ctx context.Context, endpoint transport.Endpoint, stype linux.SockType) *fs.File {
 	dirent := socket.NewDirent(ctx, unixSocketDevice)
-	defer dirent.DecRef()
+	defer dirent.DecRef(ctx)
 	return NewWithDirent(ctx, dirent, endpoint, stype, fs.FileFlags{Read: true, Write: true, NonSeekable: true})
 }
 
@@ -96,17 +96,17 @@ type socketOpsCommon struct {
 }
 
 // DecRef implements RefCounter.DecRef.
-func (s *socketOpsCommon) DecRef() {
-	s.DecRefWithDestructor(func() {
-		s.ep.Close()
+func (s *socketOpsCommon) DecRef(ctx context.Context) {
+	s.DecRefWithDestructor(ctx, func(context.Context) {
+		s.ep.Close(ctx)
 	})
 }
 
 // Release implemements fs.FileOperations.Release.
-func (s *socketOpsCommon) Release() {
+func (s *socketOpsCommon) Release(ctx context.Context) {
 	// Release only decrements a reference on s because s may be referenced in
 	// the abstract socket namespace.
-	s.DecRef()
+	s.DecRef(ctx)
 }
 
 func (s *socketOpsCommon) isPacket() bool {
@@ -233,7 +233,7 @@ func (s *SocketOperations) Accept(t *kernel.Task, peerRequested bool, flags int,
 	}
 
 	ns := New(t, ep, s.stype)
-	defer ns.DecRef()
+	defer ns.DecRef(t)
 
 	if flags&linux.SOCK_NONBLOCK != 0 {
 		flags := ns.Flags()
@@ -283,7 +283,7 @@ func (s *SocketOperations) Bind(t *kernel.Task, sockaddr []byte) *syserr.Error {
 			if t.IsNetworkNamespaced() {
 				return syserr.ErrInvalidEndpointState
 			}
-			if err := t.AbstractSockets().Bind(p[1:], bep, s); err != nil {
+			if err := t.AbstractSockets().Bind(t, p[1:], bep, s); err != nil {
 				// syserr.ErrPortInUse corresponds to EADDRINUSE.
 				return syserr.ErrPortInUse
 			}
@@ -293,7 +293,7 @@ func (s *SocketOperations) Bind(t *kernel.Task, sockaddr []byte) *syserr.Error {
 			var name string
 
 			cwd := t.FSContext().WorkingDirectory()
-			defer cwd.DecRef()
+			defer cwd.DecRef(t)
 
 			// Is there no slash at all?
 			if !strings.Contains(p, "/") {
@@ -301,7 +301,7 @@ func (s *SocketOperations) Bind(t *kernel.Task, sockaddr []byte) *syserr.Error {
 				name = p
 			} else {
 				root := t.FSContext().RootDirectory()
-				defer root.DecRef()
+				defer root.DecRef(t)
 				// Find the last path component, we know that something follows
 				// that final slash, otherwise extractPath() would have failed.
 				lastSlash := strings.LastIndex(p, "/")
@@ -317,7 +317,7 @@ func (s *SocketOperations) Bind(t *kernel.Task, sockaddr []byte) *syserr.Error {
 					// No path available.
 					return syserr.ErrNoSuchFile
 				}
-				defer d.DecRef()
+				defer d.DecRef(t)
 				name = p[lastSlash+1:]
 			}
 
@@ -331,7 +331,7 @@ func (s *SocketOperations) Bind(t *kernel.Task, sockaddr []byte) *syserr.Error {
 			if err != nil {
 				return syserr.ErrPortInUse
 			}
-			childDir.DecRef()
+			childDir.DecRef(t)
 		}
 
 		return nil
@@ -377,9 +377,9 @@ func extractEndpoint(t *kernel.Task, sockaddr []byte) (transport.BoundEndpoint, 
 			FollowFinalSymlink: true,
 		}
 		ep, e := t.Kernel().VFS().BoundEndpointAt(t, t.Credentials(), &pop, &vfs.BoundEndpointOptions{path})
-		root.DecRef()
+		root.DecRef(t)
 		if relPath {
-			start.DecRef()
+			start.DecRef(t)
 		}
 		if e != nil {
 			return nil, syserr.FromError(e)
@@ -392,15 +392,15 @@ func extractEndpoint(t *kernel.Task, sockaddr []byte) (transport.BoundEndpoint, 
 	cwd := t.FSContext().WorkingDirectory()
 	remainingTraversals := uint(fs.DefaultTraversalLimit)
 	d, e := t.MountNamespace().FindInode(t, root, cwd, path, &remainingTraversals)
-	cwd.DecRef()
-	root.DecRef()
+	cwd.DecRef(t)
+	root.DecRef(t)
 	if e != nil {
 		return nil, syserr.FromError(e)
 	}
 
 	// Extract the endpoint if one is there.
 	ep := d.Inode.BoundEndpoint(path)
-	d.DecRef()
+	d.DecRef(t)
 	if ep == nil {
 		// No socket!
 		return nil, syserr.ErrConnectionRefused
@@ -414,7 +414,7 @@ func (s *socketOpsCommon) Connect(t *kernel.Task, sockaddr []byte, blocking bool
 	if err != nil {
 		return err
 	}
-	defer ep.Release()
+	defer ep.Release(t)
 
 	// Connect the server endpoint.
 	err = s.ep.Connect(t, ep)
@@ -472,7 +472,7 @@ func (s *socketOpsCommon) SendMsg(t *kernel.Task, src usermem.IOSequence, to []b
 			if err != nil {
 				return 0, err
 			}
-			defer ep.Release()
+			defer ep.Release(t)
 			w.To = ep
 
 			if ep.Passcred() && w.Control.Credentials == nil {

@@ -18,6 +18,8 @@ import (
 	"reflect"
 	"testing"
 
+	"gvisor.dev/gvisor/pkg/context"
+	"gvisor.dev/gvisor/pkg/sentry/contexttest"
 	"gvisor.dev/gvisor/pkg/sync"
 )
 
@@ -31,11 +33,11 @@ type testCounter struct {
 	destroyed bool
 }
 
-func (t *testCounter) DecRef() {
-	t.AtomicRefCount.DecRefWithDestructor(t.destroy)
+func (t *testCounter) DecRef(ctx context.Context) {
+	t.AtomicRefCount.DecRefWithDestructor(ctx, t.destroy)
 }
 
-func (t *testCounter) destroy() {
+func (t *testCounter) destroy(context.Context) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.destroyed = true
@@ -53,7 +55,7 @@ func newTestCounter() *testCounter {
 
 func TestOneRef(t *testing.T) {
 	tc := newTestCounter()
-	tc.DecRef()
+	tc.DecRef(contexttest.Context(t))
 
 	if !tc.IsDestroyed() {
 		t.Errorf("object should have been destroyed")
@@ -63,8 +65,9 @@ func TestOneRef(t *testing.T) {
 func TestTwoRefs(t *testing.T) {
 	tc := newTestCounter()
 	tc.IncRef()
-	tc.DecRef()
-	tc.DecRef()
+	ctx := contexttest.Context(t)
+	tc.DecRef(ctx)
+	tc.DecRef(ctx)
 
 	if !tc.IsDestroyed() {
 		t.Errorf("object should have been destroyed")
@@ -74,12 +77,13 @@ func TestTwoRefs(t *testing.T) {
 func TestMultiRefs(t *testing.T) {
 	tc := newTestCounter()
 	tc.IncRef()
-	tc.DecRef()
+	ctx := contexttest.Context(t)
+	tc.DecRef(ctx)
 
 	tc.IncRef()
-	tc.DecRef()
+	tc.DecRef(ctx)
 
-	tc.DecRef()
+	tc.DecRef(ctx)
 
 	if !tc.IsDestroyed() {
 		t.Errorf("object should have been destroyed")
@@ -89,19 +93,20 @@ func TestMultiRefs(t *testing.T) {
 func TestWeakRef(t *testing.T) {
 	tc := newTestCounter()
 	w := NewWeakRef(tc, nil)
+	ctx := contexttest.Context(t)
 
 	// Try resolving.
 	if x := w.Get(); x == nil {
 		t.Errorf("weak reference didn't resolve: expected %v, got nil", tc)
 	} else {
-		x.DecRef()
+		x.DecRef(ctx)
 	}
 
 	// Try resolving again.
 	if x := w.Get(); x == nil {
 		t.Errorf("weak reference didn't resolve: expected %v, got nil", tc)
 	} else {
-		x.DecRef()
+		x.DecRef(ctx)
 	}
 
 	// Shouldn't be destroyed yet. (Can't continue if this fails.)
@@ -110,7 +115,7 @@ func TestWeakRef(t *testing.T) {
 	}
 
 	// Drop the original reference.
-	tc.DecRef()
+	tc.DecRef(ctx)
 
 	// Assert destroyed.
 	if !tc.IsDestroyed() {
@@ -126,7 +131,8 @@ func TestWeakRef(t *testing.T) {
 func TestWeakRefDrop(t *testing.T) {
 	tc := newTestCounter()
 	w := NewWeakRef(tc, nil)
-	w.Drop()
+	ctx := contexttest.Context(t)
+	w.Drop(ctx)
 
 	// Just assert the list is empty.
 	if !tc.weakRefs.Empty() {
@@ -134,7 +140,7 @@ func TestWeakRefDrop(t *testing.T) {
 	}
 
 	// Drop the original reference.
-	tc.DecRef()
+	tc.DecRef(ctx)
 }
 
 type testWeakRefUser struct {
@@ -165,7 +171,8 @@ func TestCallback(t *testing.T) {
 	}})
 
 	// Drop the original reference, this must trigger the callback.
-	tc.DecRef()
+	ctx := contexttest.Context
+	tc.DecRef(ctx)
 
 	if !called {
 		t.Fatalf("Callback not called")

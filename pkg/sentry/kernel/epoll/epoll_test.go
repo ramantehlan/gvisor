@@ -44,7 +44,7 @@ func TestFileDestroyed(t *testing.T) {
 	}
 
 	// Destroy the file. Check that we get no more events.
-	f.DecRef()
+	f.DecRef(contexttest.Context(t))
 
 	evt = e.ReadEvents(1)
 	if len(evt) != 0 {
