@@ -50,20 +50,19 @@ type LoggingArgs struct {
 	// enable strace at all. If this flag is false then a completely
 	// pristine copy of the syscall table will be swapped in. This
 	// approach is used to remain consistent with an empty strace
-	// whitelist meaning trace all system calls.
+	// syscall list meaning trace all system calls.
 	EnableStrace bool
 
-	// Strace is the whitelist of syscalls to trace to log. If this
-	// and StraceEventWhitelist are empty trace all system calls.
-	StraceWhitelist []string
+	// StraceSyscalls is the list of syscalls to trace to log. If this
+	// and StraceEventSyscalls are empty trace all system calls.
+	StraceSyscalls []string
 
 	// SetEventStrace is a flag used to indicate that event strace
 	// related arguments were passed in.
 	SetEventStrace bool
 
-	// StraceEventWhitelist is the whitelist of syscalls to trace
-	// to event log.
-	StraceEventWhitelist []string
+	// StraceEventSyscalls is the list of syscalls to trace to the event log.
+	StraceEventSyscalls []string
 }
 
 // Logging provides functions related to logging.
@@ -107,13 +106,13 @@ func (l *Logging) Change(args *LoggingArgs, code *int) error {
 
 func (l *Logging) configureStrace(args *LoggingArgs) error {
 	if args.EnableStrace {
-		// Install the whitelist specified.
-		if len(args.StraceWhitelist) > 0 {
-			if err := strace.Enable(args.StraceWhitelist, strace.SinkTypeLog); err != nil {
+		// Install the list specified.
+		if len(args.StraceSyscalls) > 0 {
+			if err := strace.Enable(args.StraceSyscalls, strace.SinkTypeLog); err != nil {
 				return err
 			}
 		} else {
-			// For convenience, if strace is enabled but whitelist
+			// For convenience, if strace is enabled but the list
 			// is empty, enable everything to log.
 			strace.EnableAll(strace.SinkTypeLog)
 		}
@@ -125,8 +124,8 @@ func (l *Logging) configureStrace(args *LoggingArgs) error {
 }
 
 func (l *Logging) configureEventStrace(args *LoggingArgs) error {
-	if len(args.StraceEventWhitelist) > 0 {
-		if err := strace.Enable(args.StraceEventWhitelist, strace.SinkTypeEvent); err != nil {
+	if len(args.StraceEventSyscalls) > 0 {
+		if err := strace.Enable(args.StraceEventSyscalls, strace.SinkTypeEvent); err != nil {
 			return err
 		}
 	} else {
