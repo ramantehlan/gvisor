@@ -17,7 +17,10 @@ package merkletree
 import (
 	"bytes"
 	"fmt"
+	"io"
+	"math/rand"
 	"testing"
+	"time"
 
 	"gvisor.dev/gvisor/pkg/usermem"
 )
@@ -118,5 +121,85 @@ func TestGenerate(t *testing.T) {
 				t.Errorf("Unexpected root")
 			}
 		})
+	}
+}
+
+// bytesReadWriter is used to read from/write to/seek in a byte array. Unlike
+// bytes.Buffer, it keeps the whole buffer during read so that it can be reused.
+type bytesReadWriteSeeker struct {
+	// bytes contains the underlying byte array.
+	bytes []byte
+	// readPos is the currently location for Read. Write always appends to
+	// the end of the array.
+	readPos int
+}
+
+func (brws *bytesReadWriteSeeker) Write(p []byte) (int, error) {
+	brws.bytes = append(brws.bytes, p...)
+	return len(p), nil
+}
+
+func (brws *bytesReadWriteSeeker) Read(p []byte) (int, error) {
+	if brws.readPos >= len(brws.bytes) {
+		return 0, io.EOF
+	}
+	bytesRead := copy(p, brws.bytes[brws.readPos:])
+	brws.readPos += bytesRead
+	if bytesRead < len(p) {
+		return bytesRead, io.EOF
+	}
+	return bytesRead, nil
+}
+
+func (brws *bytesReadWriteSeeker) Seek(offset int64, whence int) (int64, error) {
+	off := offset
+	if whence == io.SeekCurrent {
+		off += int64(brws.readPos)
+	}
+	if whence == io.SeekEnd {
+		off += int64(len(brws.bytes))
+	}
+	if off < 0 {
+		panic("seek with negative offset")
+	}
+	if off >= int64(len(brws.bytes)) {
+		return 0, io.EOF
+	}
+	brws.readPos = int(off)
+	return off, nil
+}
+
+func TestVerify(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	// Use a random dataSize. 20000 * pagesize covers 4 level trees.
+	// Minimum size 2 so that we can pick a random portion from it.
+	dataSize := rand.Int63n(20000*usermem.PageSize) + 2
+	data := make([]byte, dataSize)
+	// Generate random bytes in data.
+	rand.Read(data)
+	var tree bytesReadWriteSeeker
+
+	root, err := Generate(bytes.NewBuffer(data), int64(dataSize), &tree, &tree)
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	// Pick a random portion of data.
+	start := rand.Int63n(dataSize - 1)
+	end := start + rand.Int63n(dataSize-start) + 1
+	randPortion := data[start:end]
+
+	// Checks that the random portion of data from the original data is
+	// verified successfully.
+	if err := Verify(bytes.NewReader(data), &tree, dataSize, randPortion, int64(start), root); err != nil {
+		t.Errorf("Verification failed for correct data: %v", err)
+	}
+
+	// Flip a random bit in randPortion, and check that verification fails.
+	randBytePos := rand.Int63n(end - start)
+	randPortion[randBytePos] ^= 1
+
+	if err := Verify(bytes.NewReader(data), &tree, dataSize, randPortion, int64(start), root); err == nil {
+		t.Errorf("Verification succeeded for modified data")
 	}
 }

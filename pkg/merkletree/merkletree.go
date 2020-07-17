@@ -16,7 +16,9 @@
 package merkletree
 
 import (
+	"bytes"
 	"crypto/sha256"
+	"fmt"
 	"io"
 
 	"gvisor.dev/gvisor/pkg/usermem"
@@ -104,7 +106,9 @@ func Generate(data io.Reader, dataSize int64, treeReader io.Reader, treeWriter i
 			// size. This could be the case if we are reading the last block, and
 			// break in that case. If this is the last block, the end of the block
 			// will be zero-padded.
-			if n == 0 && err == io.EOF {
+			// This should only happen for level 0. For higher levels all the blocks
+			// should have been zero-padded.
+			if n == 0 && err == io.EOF && level == 0 {
 				break
 			} else if err != nil && err != io.EOF {
 				return nil, err
@@ -132,4 +136,121 @@ func Generate(data io.Reader, dataSize int64, treeReader io.Reader, treeWriter i
 		numBlocks = (numBlocks + size.hashesPerBlock - 1) / size.hashesPerBlock
 	}
 	return root, nil
+}
+
+// Verify verifies the content read from data with offset. The content is
+// verified against tree. If content spans across multiple blocks, each block is
+// verified. Verification fails if the hash in any level mismatches the hashes
+// stored in the tree. In the end the calculated root hash is compared to
+// expectedRoot, and fails it a mismatch happens.
+func Verify(data io.ReadSeeker, tree io.ReadSeeker, dataSize int64, content []byte, offset int64, expectedRoot []byte) error {
+	size := MakeSize(int64(dataSize))
+
+	// Calculate the index of blocks that includes the content.
+	blockStart := offset / size.blockSize
+	blockEnd := (offset + int64(len(content)) - 1) / size.blockSize
+
+	// Set data back to its original offset when verification finishes.
+	origOffset, err := data.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return fmt.Errorf("Seek origoffset failed: %v", err)
+	}
+	defer data.Seek(origOffset, io.SeekStart)
+
+	// Move the the first block that contains content in data.
+	if _, err = data.Seek(blockStart*size.blockSize, io.SeekStart); err != nil {
+		return fmt.Errorf("Seek to datablock start failed: %v", err)
+	}
+
+	// dataStart is start index in content that belongs to the current
+	// block.
+	dataStart := int64(0)
+	for i := blockStart; i <= blockEnd; i++ {
+		// Read a block that includes all or part of content from data,
+		// and replace the part that overlaps with content with content.
+		buf := make([]byte, size.blockSize)
+		n, err := data.Read(buf)
+		// If content includes the the last block, it may not fill up a
+		// whole block. The rest of buf is zero-padded.
+		if err != nil && !(err == io.EOF && n != 0) {
+			return fmt.Errorf("Read from data failed: %v", err)
+		}
+		// startIdx is the beginning index in the current block that's
+		// part of content. For the first block, it is the position in
+		// the block that content starts. For all other blocks it should
+		// be 0.
+		startIdx := int64(0)
+		if i == blockStart {
+			startIdx = offset % size.blockSize
+		}
+		// endIdx is the end index in the current block that's part of
+		// content. For the last block, it is the position in the block
+		// that content ends. For all other blocks it's block size.
+		endIdx := size.blockSize
+		if i == blockEnd {
+			endIdx = (offset+int64(len(content))-1)%size.blockSize + 1
+		}
+		// dataEnd is end index in content that belongs to the current
+		// block.
+		dataEnd := dataStart + (endIdx - startIdx)
+
+		copy(buf[startIdx:endIdx], content[dataStart:dataEnd])
+		dataStart = dataEnd
+
+		if err = verifyBlock(tree, size, buf, i, expectedRoot); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// verifyBlock verifies a block against tree. index is the number of block in
+// original data. The block is verified through each level of the tree. It fails
+// if the calculated hash from block is different from any level of hashes
+// stored in tree. And the final root hash is compared with expectedRoot.
+func verifyBlock(tree io.ReadSeeker, size Size, block []byte, index int64, expectedRoot []byte) error {
+	if len(block) != int(size.blockSize) {
+		return fmt.Errorf("incorrect block size")
+	}
+
+	digest := sha256.Sum256(block)
+	expectedDigest := make([]byte, size.digestSize)
+	for level := 0; level < len(size.levelStart); level++ {
+		// Move to stored hash for the current block, read the digest
+		// and store in expectedDigest.
+		if _, err := tree.Seek(size.levelStart[level]*size.blockSize+index*size.digestSize, io.SeekStart); err != nil {
+			return err
+		}
+		if _, err := tree.Read(expectedDigest); err != nil {
+			return err
+		}
+
+		if !bytes.Equal(digest[:], expectedDigest) {
+			return fmt.Errorf("Verification failed")
+		}
+
+		// If this is the root layer, no need to generate next level
+		// hash.
+		if level == len(size.levelStart)-1 {
+			break
+		}
+
+		// Read a block in current level that contains the hash we just
+		// generated, and generate a next level hash from it.
+		index = index / size.hashesPerBlock
+		if _, err := tree.Seek((size.levelStart[level]+index)*size.blockSize, io.SeekStart); err != nil {
+			return err
+		}
+		if _, err := tree.Read(block); err != nil {
+			return err
+		}
+		digest = sha256.Sum256(block)
+	}
+
+	// Verification for the tree succeeded. Now compare the root hash in the
+	// tree with expectedRoot.
+	if !bytes.Equal(digest[:], expectedRoot) {
+		return fmt.Errorf("Verification failed")
+	}
+	return nil
 }
