@@ -18,11 +18,14 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"syscall"
 	"time"
+	"unsafe"
 )
 
 const (
-	redirectPort = 42
+	redirectPort    = 42
+	SO_ORIGINAL_DST = 80
 )
 
 func init() {
@@ -42,6 +45,8 @@ func init() {
 	RegisterTestCase(NATOutRedirectInvert{})
 	RegisterTestCase(NATRedirectRequiresProtocol{})
 	RegisterTestCase(NATLoopbackSkipsPrerouting{})
+	RegisterTestCase(NATPreOriginalDst{})
+	RegisterTestCase(NATOutOriginalDst{})
 }
 
 // NATPreRedirectUDPPort tests that packets are redirected to different port.
@@ -469,6 +474,179 @@ func (NATLoopbackSkipsPrerouting) ContainerAction(ip net.IP, ipv6 bool) error {
 func (NATLoopbackSkipsPrerouting) LocalAction(ip net.IP, ipv6 bool) error {
 	// No-op.
 	return nil
+}
+
+// NATPreOriginalDst tests that SO_ORIGINAL_DST returns the pre-NAT destination
+// of PREROUTING NATted packets.
+type NATPreOriginalDst struct{}
+
+// Name implements TestCase.Name.
+func (NATPreOriginalDst) Name() string {
+	return "NATPreOriginalDst"
+}
+
+// ContainerAction implements TestCase.ContainerAction.
+func (NATPreOriginalDst) ContainerAction(ip net.IP, ipv6 bool) error {
+	// Redirect incoming TCP connections to acceptPort.
+	if err := natTable(ipv6, "-A", "PREROUTING",
+		"-p", "tcp",
+		"--destination-port", fmt.Sprintf("%d", dropPort),
+		"-j", "REDIRECT", "--to-port", fmt.Sprintf("%d", acceptPort)); err != nil {
+		return err
+	}
+
+	addrs, err := getInterfaceAddrs(ipv6)
+	if err != nil {
+		return err
+	}
+	return listenForRedirectedConn(ipv6, addrs)
+}
+
+// LocalAction implements TestCase.LocalAction.
+func (NATPreOriginalDst) LocalAction(ip net.IP, ipv6 bool) error {
+	return connectTCP(ip, dropPort, sendloopDuration)
+}
+
+// NATOutOriginalDst tests that SO_ORIGINAL_DST returns the pre-NAT destination
+// of OUTBOUND NATted packets.
+type NATOutOriginalDst struct{}
+
+// Name implements TestCase.Name.
+func (NATOutOriginalDst) Name() string {
+	return "NATOutOriginalDst"
+}
+
+// ContainerAction implements TestCase.ContainerAction.
+func (NATOutOriginalDst) ContainerAction(ip net.IP, ipv6 bool) error {
+	// Redirect incoming TCP connections to acceptPort.
+	if err := natTable(ipv6, "-A", "OUTPUT", "-p", "tcp", "-j", "REDIRECT", "--to-port", fmt.Sprintf("%d", acceptPort)); err != nil {
+		return err
+	}
+
+	connCh := make(chan error)
+	go func() {
+		connCh <- connectTCP(ip, dropPort, sendloopDuration)
+	}()
+
+	if err := listenForRedirectedConn(ipv6, []net.IP{ip}); err != nil {
+		return err
+	}
+	return <-connCh
+}
+
+// LocalAction implements TestCase.LocalAction.
+func (NATOutOriginalDst) LocalAction(ip net.IP, ipv6 bool) error {
+	// No-op.
+	return nil
+}
+
+type originalDstError struct {
+	errno syscall.Errno
+}
+
+func (e originalDstError) Error() string {
+	return fmt.Sprintf("errno (%d) when calling getsockopt(SOL_IP, SO_ORIGINAL_DST): %v", int(e.errno), e.errno.Error())
+}
+
+func listenForRedirectedConn(ipv6 bool, originalDsts []net.IP) error {
+	// The net package doesn't give guarantee access to the connection's
+	// underlying FD, and thus we cannot call getsockopt. We have to use
+	// traditional syscalls for SO_ORIGINAL_DST.
+
+	// Create the listening socket, bind, listen, and accept.
+	family := syscall.AF_INET
+	if ipv6 {
+		family = syscall.AF_INET6
+	}
+	sockfd, err := syscall.Socket(family, syscall.SOCK_STREAM, 0)
+	if err != nil {
+		return err
+	}
+	defer syscall.Close(sockfd)
+
+	var bindAddr syscall.Sockaddr
+	if ipv6 {
+		bindAddr = &syscall.SockaddrInet6{
+			Port: acceptPort,
+			Addr: [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, // in6addr_any
+		}
+	} else {
+		bindAddr = &syscall.SockaddrInet4{
+			Port: acceptPort,
+			Addr: [4]byte{0, 0, 0, 0}, // INADDR_ANY
+		}
+	}
+	if err := syscall.Bind(sockfd, bindAddr); err != nil {
+		return err
+	}
+
+	if err := syscall.Listen(sockfd, 1); err != nil {
+		return err
+	}
+
+	connfd, _, err := syscall.Accept(sockfd)
+	if err != nil {
+		return err
+	}
+	defer syscall.Close(connfd)
+
+	// Verify that, despite listening on acceptPort, SO_ORIGINAL_DST
+	// indicates the packet was sent to originalDst:dropPort.
+	if ipv6 {
+		var got syscall.RawSockaddrInet6
+		var addrLen uint32 = syscall.SizeofSockaddrInet6
+		_, _, errno := syscall.Syscall6(
+			syscall.SYS_GETSOCKOPT,
+			uintptr(connfd),
+			syscall.SOL_IPV6,
+			SO_ORIGINAL_DST,
+			uintptr(unsafe.Pointer(&got)),
+			uintptr(unsafe.Pointer(&addrLen)),
+			0)
+		if errno != 0 {
+			return originalDstError{errno}
+		}
+
+		// The original destination could be any of our IPs.
+		for _, dst := range originalDsts {
+			want := syscall.RawSockaddrInet6{
+				Family: syscall.AF_INET6,
+				Port:   htons(dropPort),
+			}
+			copy(want.Addr[:], dst.To16())
+			if got == want {
+				return nil
+			}
+		}
+		return fmt.Errorf("SO_ORIGINAL_DST returned %+v, but wanted one of %+v (note: port numbers are in network byte order)", got, originalDsts)
+	} else {
+		var got syscall.RawSockaddrInet4
+		var addrLen uint32 = syscall.SizeofSockaddrInet4
+		_, _, errno := syscall.Syscall6(
+			syscall.SYS_GETSOCKOPT,
+			uintptr(connfd),
+			syscall.SOL_IP,
+			SO_ORIGINAL_DST,
+			uintptr(unsafe.Pointer(&got)),
+			uintptr(unsafe.Pointer(&addrLen)),
+			0)
+		if errno != 0 {
+			return originalDstError{errno}
+		}
+
+		// The original destination could be any of our IPs.
+		for _, dst := range originalDsts {
+			want := syscall.RawSockaddrInet4{
+				Family: syscall.AF_INET,
+				Port:   htons(dropPort),
+			}
+			copy(want.Addr[:], dst.To4())
+			if got == want {
+				return nil
+			}
+		}
+		return fmt.Errorf("SO_ORIGINAL_DST returned %+v, but wanted one of %+v (note: port numbers are in network byte order)", got, originalDsts)
+	}
 }
 
 // loopbackTests runs an iptables rule and ensures that packets sent to
