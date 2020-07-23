@@ -243,6 +243,11 @@ func SetLeakMode(mode LeakMode) {
 	atomic.StoreUint32(&leakMode, uint32(mode))
 }
 
+// GetLeakMode returns the current leak mode.
+func GetLeakMode() LeakMode {
+	return LeakMode(atomic.LoadUint32(&leakMode))
+}
+
 const maxStackFrames = 40
 
 type fileLine struct {
