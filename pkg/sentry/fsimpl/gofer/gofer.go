@@ -192,10 +192,14 @@ const (
 	//
 	// - File timestamps are based on client clocks. This ensures that users of
 	// the client observe timestamps that are coherent with their own clocks
-	// and consistent with Linux's semantics. However, since it is not always
-	// possible for clients to set arbitrary atimes and mtimes, and never
-	// possible for clients to set arbitrary ctimes, file timestamp changes are
-	// stored in the client only and never sent to the remote filesystem.
+	// and consistent with Linux's semantics (in particular, it is not always
+	// possible for clients to set arbitrary atimes and mtimes depending on the
+	// remote filesystem implementation, and never possible for clients to set
+	// arbitrary ctimes.) If a dentry containing a client-defined atime or
+	// mtime is evicted from cache, client timestamps will be sent to the
+	// remote filesystem on a best-effort basis to attempt to ensure that
+	// timestamps will be preserved when another dentry representing the same
+	// file is instantiated.
 	InteropModeExclusive InteropMode = iota
 
 	// InteropModeWritethrough is appropriate when there are read-only users of
@@ -624,6 +628,12 @@ type dentry struct {
 	// File size, protected by both metadataMu and dataMu (i.e. both must be
 	// locked to mutate it; locking either is sufficient to access it).
 	size uint64
+	// If this dentry does not represent a synthetic file, deleted is 0, and
+	// atimeDirty/mtimeDirty are non-zero, atime/mtime may have diverged from the
+	// remote file's timestamps, which should be updated when this dentry is
+	// evicted.
+	atimeDirty uint32
+	mtimeDirty uint32
 
 	// nlink counts the number of hard links to this dentry. It's updated and
 	// accessed using atomic operations. It's not protected by metadataMu like the
@@ -804,10 +814,12 @@ func (d *dentry) updateFromP9AttrsLocked(mask p9.AttrMask, attr *p9.Attr) {
 	if attr.BlockSize != 0 {
 		atomic.StoreUint32(&d.blockSize, uint32(attr.BlockSize))
 	}
-	if mask.ATime {
+	// Don't override newer client-defined timestamps with old server-defined
+	// ones.
+	if mask.ATime && atomic.LoadUint32(&d.atimeDirty) == 0 {
 		atomic.StoreInt64(&d.atime, dentryTimestampFromP9(attr.ATimeSeconds, attr.ATimeNanoSeconds))
 	}
-	if mask.MTime {
+	if mask.MTime && atomic.LoadUint32(&d.mtimeDirty) == 0 {
 		atomic.StoreInt64(&d.mtime, dentryTimestampFromP9(attr.MTimeSeconds, attr.MTimeNanoSeconds))
 	}
 	if mask.CTime {
@@ -995,6 +1007,7 @@ func (d *dentry) setStat(ctx context.Context, creds *auth.Credentials, opts *vfs
 		} else {
 			atomic.StoreInt64(&d.atime, dentryTimestampFromStatx(stat.Atime))
 		}
+		atomic.StoreUint32(&d.atimeDirty, 1)
 		// Restore mask bits that we cleared earlier.
 		stat.Mask |= linux.STATX_ATIME
 	}
@@ -1004,6 +1017,7 @@ func (d *dentry) setStat(ctx context.Context, creds *auth.Credentials, opts *vfs
 		} else {
 			atomic.StoreInt64(&d.mtime, dentryTimestampFromStatx(stat.Mtime))
 		}
+		atomic.StoreUint32(&d.mtimeDirty, 1)
 		// Restore mask bits that we cleared earlier.
 		stat.Mask |= linux.STATX_MTIME
 	}
@@ -1252,7 +1266,7 @@ func (d *dentry) destroyLocked() {
 		// Write dirty pages back to the remote filesystem.
 		if d.handleWritable {
 			if err := fsutil.SyncDirtyAll(ctx, &d.cache, &d.dirty, d.size, mf, d.handle.writeFromBlocksAt); err != nil {
-				log.Warningf("gofer.dentry.DecRef: failed to write dirty data back: %v", err)
+				log.Warningf("gofer.dentry.destroyLocked: failed to write dirty data back: %v", err)
 			}
 		}
 		// Discard cached data.
@@ -1265,6 +1279,28 @@ func (d *dentry) destroyLocked() {
 	d.handleMu.Unlock()
 
 	if !d.file.isNil() {
+		if !d.isDeleted() {
+			// Write dirty timestamps back to the remote filesystem.
+			atimeDirty := atomic.LoadUint32(&d.atimeDirty) != 0
+			mtimeDirty := atomic.LoadUint32(&d.mtimeDirty) != 0
+			if atimeDirty || mtimeDirty {
+				atime := atomic.LoadInt64(&d.atime)
+				mtime := atomic.LoadInt64(&d.mtime)
+				if err := d.file.setAttr(ctx, p9.SetAttrMask{
+					ATime:              atimeDirty,
+					ATimeNotSystemTime: atimeDirty,
+					MTime:              mtimeDirty,
+					MTimeNotSystemTime: mtimeDirty,
+				}, p9.SetAttr{
+					ATimeSeconds:     uint64(atime / 1e9),
+					ATimeNanoSeconds: uint64(atime % 1e9),
+					MTimeSeconds:     uint64(mtime / 1e9),
+					MTimeNanoSeconds: uint64(mtime % 1e9),
+				}); err != nil {
+					log.Warningf("gofer.dentry.destroyLocked: failed to write dirty timestamps back: %v", err)
+				}
+			}
+		}
 		d.file.close(ctx)
 		d.file = p9file{}
 		// Remove d from the set of syncable dentries.
