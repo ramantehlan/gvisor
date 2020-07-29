@@ -482,7 +482,9 @@ func (d *dentry) checkDropLocked() {
 
 // destroyLocked destroys the dentry.
 //
-// Preconditions: d.fs.renameMu must be locked for writing. d.refs == 0.
+// Preconditions:
+// * d.fs.renameMu must be locked for writing.
+// * d.refs == 0.
 func (d *dentry) destroyLocked() {
 	switch atomic.LoadInt64(&d.refs) {
 	case 0:

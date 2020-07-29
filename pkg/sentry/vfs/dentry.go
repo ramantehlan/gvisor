@@ -241,8 +241,9 @@ func (vfs *VirtualFilesystem) InvalidateDentry(d *Dentry) {
 // caller must call AbortRenameDentry, CommitRenameReplaceDentry, or
 // CommitRenameExchangeDentry depending on the rename's outcome.
 //
-// Preconditions: If to is not nil, it must be a child Dentry from the same
-// Filesystem. from != to.
+// Preconditions:
+// * If to is not nil, it must be a child Dentry from the same Filesystem.
+// * from != to.
 func (vfs *VirtualFilesystem) PrepareRenameDentry(mntns *MountNamespace, from, to *Dentry) error {
 	vfs.mountMu.Lock()
 	if mntns.mountpoints[from] != 0 {

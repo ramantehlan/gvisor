@@ -1066,8 +1066,9 @@ func (k *Kernel) Start() error {
 
 // pauseTimeLocked pauses all Timers and Timekeeper updates.
 //
-// Preconditions: Any task goroutines running in k must be stopped. k.extMu
-// must be locked.
+// Preconditions:
+// * Any task goroutines running in k must be stopped.
+// * k.extMu must be locked.
 func (k *Kernel) pauseTimeLocked() {
 	// k.cpuClockTicker may be nil since Kernel.SaveTo() may be called before
 	// Kernel.Start().
@@ -1110,8 +1111,9 @@ func (k *Kernel) pauseTimeLocked() {
 // pauseTimeLocked has not been previously called, resumeTimeLocked has no
 // effect.
 //
-// Preconditions: Any task goroutines running in k must be stopped. k.extMu
-// must be locked.
+// Preconditions:
+// * Any task goroutines running in k must be stopped.
+// * k.extMu must be locked.
 func (k *Kernel) resumeTimeLocked() {
 	if k.cpuClockTicker != nil {
 		k.cpuClockTicker.Resume()

@@ -81,9 +81,9 @@ var _ vfs.FilesystemImpl = (*filesystem)(nil)
 // stepLocked is loosely analogous to fs/namei.c:walk_component().
 //
 // Preconditions:
-//     - filesystem.mu must be locked (for writing if write param is true).
-//     - !rp.Done().
-//     - inode == vfsd.Impl().(*Dentry).inode.
+// * filesystem.mu must be locked (for writing if write param is true).
+// * !rp.Done().
+// * inode == vfsd.Impl().(*Dentry).inode.
 func stepLocked(rp *vfs.ResolvingPath, vfsd *vfs.Dentry, inode *inode, write bool) (*vfs.Dentry, *inode, error) {
 	if !inode.isDir() {
 		return nil, nil, syserror.ENOTDIR
@@ -166,7 +166,7 @@ func stepLocked(rp *vfs.ResolvingPath, vfsd *vfs.Dentry, inode *inode, write boo
 // walkLocked is loosely analogous to Linux's fs/namei.c:path_lookupat().
 //
 // Preconditions:
-//     - filesystem.mu must be locked (for writing if write param is true).
+// * filesystem.mu must be locked (for writing if write param is true).
 func walkLocked(rp *vfs.ResolvingPath, write bool) (*vfs.Dentry, *inode, error) {
 	vfsd := rp.Start()
 	inode := vfsd.Impl().(*dentry).inode
@@ -194,8 +194,8 @@ func walkLocked(rp *vfs.ResolvingPath, write bool) (*vfs.Dentry, *inode, error) 
 // walkParentLocked is loosely analogous to Linux's fs/namei.c:path_parentat().
 //
 // Preconditions:
-//     - filesystem.mu must be locked (for writing if write param is true).
-//     - !rp.Done().
+// * filesystem.mu must be locked (for writing if write param is true).
+// * !rp.Done().
 func walkParentLocked(rp *vfs.ResolvingPath, write bool) (*vfs.Dentry, *inode, error) {
 	vfsd := rp.Start()
 	inode := vfsd.Impl().(*dentry).inode
