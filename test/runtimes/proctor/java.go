@@ -64,8 +64,11 @@ func (javaRunner) ListTests() ([]string, error) {
 func (javaRunner) TestCmds(tests []string) []*exec.Cmd {
 	args := append(
 		[]string{
-			"-noreport",
-			"-dir:" + javaTestDir,
+			"-agentvm",            // Execute each action using a pool of reusable JVMs.
+			"-noreport",           // Do not generate a final report.
+			"-conc:auto",          // Allow tests to run concurrently.
+			"-verbose:nopass",     // Verbose output but supress it for tests that passed.
+			"-dir:" + javaTestDir, // Base directory for test files and directories.
 		},
 		tests...,
 	)
