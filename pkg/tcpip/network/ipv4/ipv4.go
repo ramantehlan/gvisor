@@ -442,7 +442,20 @@ func (e *endpoint) HandlePacket(r *stack.Route, pkt *stack.PacketBuffer) {
 		}
 		var ready bool
 		var err error
-		pkt.Data, ready, err = e.fragmentation.Process(hash.IPv4FragmentHash(h), h.FragmentOffset(), last, h.More(), pkt.Data)
+		pkt.Data, ready, err = e.fragmentation.Process(
+			fragmentation.FragmentID{
+				Source:      h.SourceAddress(),
+				Destination: h.DestinationAddress(),
+				// As per RFC 791 section 2.3, the identification value is unique
+				// for a source-destination pair and protocol so we include the
+				// protocol in our calculated ID.
+				ID: uint32(h.ID())<<16 | uint32(h.Protocol()),
+			},
+			h.FragmentOffset(),
+			last,
+			h.More(),
+			pkt.Data,
+		)
 		if err != nil {
 			r.Stats().IP.MalformedPacketsReceived.Increment()
 			r.Stats().IP.MalformedFragmentsReceived.Increment()
